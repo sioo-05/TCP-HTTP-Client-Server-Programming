@@ -126,16 +126,17 @@ while True:
     elif method == "DELETE": # DELETE 요청 (db에 있는 데이터를 "삭제"하는 요청)
         parts = path.strip("/").split("/")
         if len(parts) == 2 and parts[0] == "users":
-            user_id = int(parts[1])
+            user_id = int(parts[1]) # user_id추출
 
             conn = sqlite3.connect(USERS_DB)
-            row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
-
+            row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone() 
+            # 이 유저가 존재하면 row에 값 들어감
+            
             if row is None:
                 conn.close()
                 response = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"error": "user not found"})
             else:
-                conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                conn.execute("DELETE FROM users WHERE id = ?", (user_id,)) # 해당 행 삭제
                 conn.commit()
                 conn.close()
                 response = "HTTP/1.1 204 No Content\r\n\r\n"

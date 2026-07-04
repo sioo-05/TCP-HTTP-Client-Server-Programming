@@ -50,7 +50,7 @@ test_cases = {
     "5": ("POST-400", lambda: send_request("POST", "/users", "{}")),
     "6": ("PUT-200", lambda: send_request("PUT", "/users/1", '{"name": "Kim Updated"}')),
     "7": ("PUT-404", lambda: send_request("PUT", "/users/9999", '{"name": "Ghost"}')),
-    "8": ("DELETE-204", test_delete_success),
+    "8": ("DELETE-204",lambda:send_request("DELETE", "/users/1")),
     "9": ("DELETE-404", lambda: send_request("DELETE", "/users/9999")),
 }
 
