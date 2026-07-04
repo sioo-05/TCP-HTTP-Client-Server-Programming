@@ -2,29 +2,29 @@ from socket import *
 import json
 
 serverName = 'localhost'
-serverPort = 8080
+serverPort = 8080 
 
 
 def send_request(method, path, body=""):
     clientSocket = socket(AF_INET, SOCK_STREAM) # 요청마다 새 연결
-    clientSocket.connect((serverName, serverPort))
+    clientSocket.connect((serverName, serverPort)) # 연결 
 
-    header_lines = f"Host: {serverName}"
+    header_lines = f"Host: {serverName}" 
     if body:
-        header_lines += f"\r\nContent-Type: application/json\r\nContent-Length: {len(body.encode())}"
+        header_lines += f"\r\nContent-Type: application/json\r\nContent-Length: {len(body.encode())}" # 헤더 라인 추가
         header_lines += "\r\nExpect: 100-continue" # 바디가 있으면 100 Continue부터 확인
 
-    request = f"{method} {path} HTTP/1.1\r\n{header_lines}\r\n\r\n"
-    clientSocket.send(request.encode())
+    request = f"{method} {path} HTTP/1.1\r\n{header_lines}\r\n\r\n" # 요청 메시지
+    clientSocket.send(request.encode()) # 요청 메시지 전송
 
     if body:
-        interim = clientSocket.recv(1024).decode()
+        interim = clientSocket.recv(1024).decode() 
         print(f"[{method} {path}] interim ->", interim.split("\r\n")[0])
         if interim.startswith("HTTP/1.1 100"):
             clientSocket.send(body.encode()) # 100 Continue를 받은 후에 바디 전송
 
-    response = clientSocket.recv(4096).decode()
-    status_line = response.split("\r\n")[0]
+    response = clientSocket.recv(4096).decode() # 서버로부터 응답 받기
+    status_line = response.split("\r\n")[0] 
     print(f"[{method} {path}] -> {status_line}")
     print(response)
     print("-" * 60)
