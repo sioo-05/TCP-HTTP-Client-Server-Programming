@@ -33,39 +33,31 @@ def send_request(method, path, body=""):
     return response
 
 
-def test_delete_success():
-    # 삭제할 대상을 미리 하나 생성한 뒤, 그 id를 삭제해서 204를 재현 가능하게 함
-    created = send_request("POST", "/users", '{"name": "Temp", "email": "temp@test.com"}')
-    body_json = created.split("\r\n\r\n", 1)[1]
-    new_id = json.loads(body_json)["id"]
-    send_request("DELETE", f"/users/{new_id}")
-
-
 # 과제에서 요구하는 Method-상태코드 케이스 (5개 이상, CRUD 전체)
 test_cases = {
-    "1": ("GET-200", lambda: send_request("GET", "/users")),
+    "1": ("GET-200", lambda: send_request("GET", "/users")),  
     "2": ("GET-404", lambda: send_request("GET", "/notfound")),
     "3": ("HEAD-200", lambda: send_request("HEAD", "/users")),
     "4": ("POST-201", lambda: send_request("POST", "/users", '{"name": "Kim", "email": "kim@test.com"}')),
     "5": ("POST-400", lambda: send_request("POST", "/users", "{}")),
-    "6": ("PUT-200", lambda: send_request("PUT", "/users/1", '{"name": "Kim Updated"}')),
-    "7": ("PUT-404", lambda: send_request("PUT", "/users/9999", '{"name": "Ghost"}')),
-    "8": ("DELETE-204",lambda:send_request("DELETE", "/users/1")),
+    "6": ("PUT-200", lambda: send_request("PUT", "/users/1", '{"name": "Kim Updated", "email": "kim.updated@test.com"}')),
+    "7": ("PUT-404", lambda: send_request("PUT", "/users/9999", '{"name": "Ghost", "email": "ghost@test.com"}')),
+    "8": ("DELETE-204",lambda:send_request("DELETE", "/users/20")),
     "9": ("DELETE-404", lambda: send_request("DELETE", "/users/9999")),
 }
 
-print("테스트할 케이스를 선택하세요:")
+print("테스트할 케이스를 선택하세요:") 
 for key, (label, _) in test_cases.items():
     print(f"  {key}. {label}")
 print("  0. 전체 실행")
 
-choice = input("번호 입력: ").strip()
+choice = input("번호 입력: ").strip() # 0~9 번호 입력
 
-if choice == "0":
+if choice == "0": # 전체 실행
     for key, (label, func) in test_cases.items():
         print(f"=== {label} ===")
         func()
-elif choice in test_cases:
+elif choice in test_cases: # 각 케이스 번호 실행
     label, func = test_cases[choice]
     print(f"=== {label} ===")
     func()

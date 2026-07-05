@@ -3,8 +3,10 @@ import sqlite3
 conn = sqlite3.connect("database/users.db")
 cursor = conn.cursor()
 
+cursor.execute("DROP TABLE IF EXISTS users") # 재실행 시 중복 삽입 방지를 위해 기존 테이블 초기화
+
 cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE users (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT NOT NULL

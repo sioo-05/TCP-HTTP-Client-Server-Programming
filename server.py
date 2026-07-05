@@ -41,20 +41,20 @@ while True:
         body += connectionSocket.recv(1024).decode()
 
     if method == "GET": # GET 요청 (db에 있는 데이터를 "가져오는" 요청)
-        parts = path.strip("/").split("/")
+        parts = path.strip("/").split("/") # path를 /를 기준으로 분리
         conn = sqlite3.connect(USERS_DB) # DB 연결
         if path == "/users":
             rows = conn.execute("SELECT id, name, email FROM users").fetchall() # 전체 행 조회
             conn.close()
-            users = [{"id": r[0], "name": r[1], "email": r[2]} for r in rows]
-            response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(users, ensure_ascii=False)
-        elif len(parts) == 2 and parts[0] == "users":
+            users = [{"id": r[0], "name": r[1], "email": r[2]} for r in rows] # user 리스트 생성
+            response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(users, ensure_ascii=False) # 응답 보냄
+        elif len(parts) == 2 and parts[0] == "users": 
             row = conn.execute("SELECT id, name, email FROM users WHERE id = ?", (int(parts[1]),)).fetchone()
             conn.close()
             if row is None: # 없으면 404
                 response = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"error": "user not found"})
             else:
-                user = {"id": row[0], "name": row[1], "email": row[2]}
+                user = {"id": row[0], "name": row[1], "email": row[2]} # 해당되는 유저 행
                 response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(user, ensure_ascii=False) # 있으면 json 객체 반환
         else:
             conn.close()
@@ -111,15 +111,21 @@ while True:
                 conn.close()
                 response = "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"error": "user not found"})
             else:
-                target = {"id": row[0], "name": row[1], "email": row[2]} # 기존 값을 기본값으로 사용
-                data = json.loads(body) if body else {} # 요청 바디 파싱
-                target.update({k: v for k, v in data.items() if k in ("name", "email")}) # name/email만 부분 수정 반영
+                try:
+                    data = json.loads(body) if body else {} # 요청 바디 파싱
+                except json.JSONDecodeError:
+                    data = {}
 
-                conn.execute("UPDATE users SET name = ?, email = ? WHERE id = ?",
-                             (target["name"], target["email"], user_id)) # 수정된 값으로 갱신
-                conn.commit()
-                conn.close()
-                response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(target, ensure_ascii=False) # 수정된 유저 반환
+                if "name" not in data or "email" not in data: # PUT은 전체 교체이므로 두 필드 모두 필수
+                    conn.close()
+                    response = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n" + json.dumps({"error": "name and email are required"})
+                else:
+                    target = {"id": row[0], "name": data["name"], "email": data["email"]} # 기존 값 대신 바디 내용으로 전체 교체
+                    conn.execute("UPDATE users SET name = ?, email = ? WHERE id = ?",
+                                 (target["name"], target["email"], user_id)) # 수정된 값으로 갱신
+                    conn.commit()
+                    conn.close()
+                    response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" + json.dumps(target, ensure_ascii=False) # 교체된 유저 반환
         else:
             response = "HTTP/1.1 404 Not Found\r\nContent-Type: text/html\r\n\r\n<h1>404 Not Found</h1>"
 
