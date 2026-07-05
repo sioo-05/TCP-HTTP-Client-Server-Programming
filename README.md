@@ -554,35 +554,35 @@ Content-Type: application/json
 
 **① GET /users → 200 OK**
 
-![GET /users 요청 전체 캡처](![alt text](image.png))
+![GET /users 요청 전체 캡처](images/get-200-stream.png)
 
-`tcp.port == 8080` 필터로 캡처한 화면이다. 패킷 49~51번에서 `SYN → SYN,ACK → ACK` 3-way handshake가 이루어지고, 52번 패킷에서 `GET /users HTTP/1.1` 요청이 전송된다. 53번은 서버의 TCP ACK이고, 54번 패킷(`[PSH, ACK]`, Len=1250)에 `HTTP/1.1 200 OK` 상태 라인과 JSON 바디가 함께 담겨 전송된 것을 `Info` 컬럼에서 확인할 수 있다. 마지막 58~59번 패킷에서 `FIN, ACK`로 연결이 종료된다.
+`tcp.port == 8080` 필터로 캡처한 화면이다. 패킷 49-51번에서 `SYN → SYN,ACK → ACK` 3-way handshake가 이루어지고, 52번 패킷에서 `GET /users HTTP/1.1` 요청이 전송된다. 53번은 서버의 TCP ACK이고, 54번 패킷(`[PSH, ACK]`, Len=1250)에 `HTTP/1.1 200 OK` 상태 라인과 JSON 바디가 함께 담겨 전송된 것을 `Info` 컬럼에서 확인할 수 있다. 마지막 58-59번 패킷에서 `FIN, ACK`로 연결이 종료된다.
 
 **② GET /notfound → 404 Not Found**
 
-- [![alt text](image-1.png)] 캡처 화면 
+![GET /notfound Follow TCP Stream](images/get-404-stream.png)
 - 확인 포인트: 요청 패킷의 `GET /notfound HTTP/1.1`, 응답 패킷의 `HTTP/1.1 404 Not Found`와 `{"error": "not found"}` 바디가 페이로드에 그대로 보이는지 (`Follow TCP Stream` 권장)
 
 **③ HEAD /users → 200 OK**
 
-- [![alt text](image-2.png)] 캡처 화면 
+![HEAD /users Follow TCP Stream](images/head-200-stream.png)
 - 확인 포인트: 요청은 `HEAD /users HTTP/1.1`이지만 응답 패킷에 `Content-Type` 헤더 뒤에 **바디가 없다**는 점을 GET-200 캡처와 비교해서 보여주면 좋음
 
 **④ POST /users → 100 Continue → 201 Created**
 
-- (![alt text](image-3.png)) 캡처 화면
+![POST /users Follow TCP Stream](images/post-201-stream.png)
 
 패킷 상세 패널(Packet Details)에서 `Hypertext Transfer Protocol` 트리를 펼친 화면이다. `Response Version: HTTP/1.1`, `Status Code: 100`, `Response Phrase: Continue`가 각각의 필드로 파싱되어 있다. 이는 `Expect: 100-continue` 헤더를 받은 서버가 클라이언트의 바디 전송을 승인하며 보내는 응답이다(4.5절 참고). 이 패킷 자체가 과제에서 요구하는 **1xx 상태 코드** 캡처에 해당한다.
 같은 연결(`tcp.stream`)에서 이어지는 헤더 요청 패킷(`Content-Length`, `Expect: 100-continue` 포함) + 바디 패킷 + 최종 `201 Created` 응답까지 `Follow TCP Stream`으로 본 전체 화면
 
 **⑤ PUT /users/9999 → 100 Continue → 404 Not Found**
 
-- [![alt text](image-4.png)] 캡처 화면 
+![PUT /users/9999 Follow TCP Stream](images/put-404-stream.png)
 - 확인 포인트: POST와 동일하게 `Expect: 100-continue` → `100 Continue` 흐름이 한 번 더 재현되며, 최종 응답이 `404 Not Found`이다.
 
 **⑥ DELETE /users/20 → 204 No Content**
 
-- [![alt text](image.png)] 캡처 화면
+![DELETE /users/20 Follow TCP Stream](images/delete-204-stream.png)
 - 확인 포인트: `DELETE /users/20 HTTP/1.1` 요청은 바디가 없어 `100 Continue` 과정 없이 바로 응답이 오며, 삭제 성공 응답은 `HTTP/1.1 204 No Content`로 **바디 없이 상태 라인만** 온다는 점이 다른 성공 응답과 다르다.
 
 ---
