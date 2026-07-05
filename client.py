@@ -51,12 +51,16 @@ def send_request(clientSocket, method, path, body=""):
     status_line = response.split("\r\n")[0] # 예: "HTTP/1.1 200 OK"
     status_only = status_line.split(" ", 1)[1] # 예: "200 OK"
 
+    body_only = response.split("\r\n\r\n", 1)[1]
+
     print(f"{method} {path}")
     print(status_only)
+    if body_only:
+        print(body_only)
     print()
 
 
-# 과제에서 요구하는 Method-상태코드 케이스 (5개 이상, CRUD 전체)
+# Method-상태코드 케이스 (5개 이상, CRUD 전체)
 test_cases = {
     "1": ("GET", "/users", ""),
     "2": ("GET", "/notfound", ""),
