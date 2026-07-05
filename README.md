@@ -1,8 +1,8 @@
 # TCP 소켓 기반 HTTP Client/Server 구현 프로젝트
 
-##프로젝트명##: TCP 소켓 프로그래밍을 이용한 HTTP GET/HEAD/POST/PUT/DELETE 통신 구현
-###구현 언어###: Python 3.13
-###작성자###: 20243149 인공지능학부 박재원
+프로젝트명: TCP 소켓 프로그래밍을 이용한 HTTP GET/HEAD/POST/PUT/DELETE 통신 구현
+구현 언어: Python 3.13
+작성자: 20243149 인공지능학부 박재원
 ---
 
 ## 목차
