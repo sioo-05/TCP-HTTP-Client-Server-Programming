@@ -104,7 +104,7 @@ socket()  →  connect()  →  send()  →  recv()  →  close()
 | `send(data)` / `recv(bufsize)` | 데이터 송수신 (바이트 단위) |
 | `close()` | 소켓 종료, 4-way handshake로 연결 해제 |
 
-본 프로젝트의 서버는 `while True:` 반복문 안에서 `accept()`를 반복 호출하여, 하나의 요청을 처리하고 소켓을 닫은 뒤 곧바로 다음 클라이언트의 연결을 기다리는 **반복 서버(iterative server)** 구조로 구현하였다. 클라이언트는 요청 1건마다 새로운 소켓을 생성하여 연결 → 요청 → 응답 → 종료를 수행하는 **short-lived connection(비영속 연결)** 방식을 사용한다 (HTTP/1.0 스타일의 연결 방식과 유사).
+본 프로젝트의 서버는 `while True:` 반복문 안에서 `accept()`를 반복 호출하여 새 클라이언트를 받아들이는 **반복 서버(iterative server)** 구조이다. 다만 한 클라이언트와 맺은 연결 안에서는 다시 내부 `while True:` 루프를 돌며, 클라이언트가 소켓을 닫기 전까지(`recv()`가 빈 값을 반환하기 전까지) 같은 TCP 연결로 여러 요청을 계속 받아 처리한다. 즉 **HTTP/1.1의 기본값인 Persistent Connection(Keep-Alive)** 방식이다. 클라이언트도 프로그램 시작 시 `connect()`를 딱 한 번만 호출하고, 사용자가 `q`를 입력해 종료를 선택할 때만 `close()`를 호출한다 — 그 사이에 입력하는 여러 번호(요청)는 전부 같은 소켓 하나로 오간다.
 
 ---
 
@@ -147,9 +147,13 @@ Expect: 100-continue
 ```
 HTTP/1.1 200 OK
 Content-Type: application/json
+Content-Length: 60
+Connection: keep-alive
 
 {"id": 1, "name": "Jaewon", "email": "jaewon@example.com"}
 ```
+
+`Content-Length`와 `Connection` 헤더는 서버가 모든 응답에 공통으로 붙여준다. 지속 연결(Keep-Alive)에서는 연결이 끊기지 않으므로 "연결 종료 = 응답 끝"이라는 신호를 쓸 수 없다 — `Content-Length`가 없다면 클라이언트는 이 응답이 어디서 끝나는지 알 방법이 없어 다음 요청을 준비할 수 없다. 그래서 클라이언트는 `Content-Length`만큼 바이트를 읽어야 응답의 끝을 알 수 있다(6.4절, 7.2절 참고).
 
 ### 4.3 본 프로젝트에서 구현한 메서드
 
@@ -182,7 +186,7 @@ Client                                Server
   |<--------- 최종 응답(200/201/400 등) -|
 ```
 
-이 구조 덕분에 POST/PUT 요청 시마다 실제로 1xx 상태 코드가 한 번씩 발생하며, 9장의 실행 결과에서 `interim -> HTTP/1.1 100 Continue` 로그로 확인할 수 있다.
+이 구조 덕분에 POST/PUT 요청 시마다 실제로 1xx 상태 코드가 한 번씩 발생한다. 다만 클라이언트 콘솔에는 각 요청의 최종 상태 코드만 출력하도록 되어 있어(7.2절 참고) 이 `100 Continue` 자체는 화면에 별도로 찍히지 않으며, 실제로 주고받았는지는 10장의 Wireshark 캡처에서 확인할 수 있다.
 
 ---
 
@@ -203,11 +207,11 @@ Socket_HTTP_Project/
 
 ### 5.2 `server.py`
 
-포트 8080에서 TCP 연결을 대기하다가, 연결이 들어오면 요청 데이터를 수신 → 파싱 → 메서드별 분기 처리 → SQLite 조회/변경 → HTTP 응답 문자열 조립 → 전송 → 소켓 종료를 반복하는 반복 서버.
+포트 8080에서 TCP 연결을 대기하다가, 연결이 들어오면 클라이언트가 연결을 끊을 때까지 같은 소켓으로 요청 데이터 수신 → 파싱 → 메서드별 분기 처리 → SQLite 조회/변경 → HTTP 응답 문자열 조립 → 전송을 반복하는 반복 서버(Keep-Alive).
 
 ### 5.3 `client.py`
 
-`send_request(method, path, body)` 함수 하나로 모든 HTTP 요청을 생성/전송하고 응답을 콘솔에 출력한다. 하단에는 과제에서 요구하는 "Method-상태코드" 조합을 미리 정의한 `test_cases` 딕셔너리가 있어, 실행 시 번호를 입력하면 해당 케이스만, `0`을 입력하면 9개 케이스 전체를 순차 실행한다.
+프로그램 시작 시 TCP 연결을 한 번만 맺고, 사용자가 번호를 입력할 때마다 `send_request()`로 같은 소켓에 요청을 보내고 응답의 상태 코드를 콘솔에 출력한다. `test_cases` 딕셔너리에 과제에서 요구하는 "Method-상태코드" 조합 9가지가 정의되어 있으며, 사용자가 `q`를 입력하면 그때 소켓을 닫고 프로그램을 종료한다.
 
 ---
 
@@ -224,16 +228,28 @@ print('The server is ready to receive')
 
 TCP 소켓을 생성하고 8080 포트에 바인딩한 뒤, `listen()`으로 연결 대기 상태에 진입한다. `bind(('', serverPort))`에서 IP를 공백으로 지정하면 서버 PC의 모든 네트워크 인터페이스에서 오는 연결을 받아들이므로, `localhost` 실습뿐 아니라 2대 PC 환경에서도 별도 수정 없이 동작한다.
 
-### 6.2 요청 수신 및 파싱
+### 6.2 연결 수락과 Keep-Alive 루프
 
 ```python
 connectionSocket, addr = serverSocket.accept()
-request = connectionSocket.recv(1024).decode()
-request_line = request.split("\r\n")[0]
-method, path, version = request_line.split()
+
+while True: # 클라이언트가 닫을 때까지 같은 TCP 연결로 여러 요청을 순서대로 처리
+    request = connectionSocket.recv(1024).decode()
+
+    if not request: # 클라이언트가 연결을 끊음 (예: 사용자가 q 입력 후 close())
+        break
+
+    while "\r\n\r\n" not in request: # 헤더가 한 번에 다 안 왔으면 마저 수신
+        more = connectionSocket.recv(1024).decode()
+        if not more:
+            break
+        request += more
+
+    request_line = request.split("\r\n")[0]
+    method, path, version = request_line.split()
 ```
 
-`accept()`로 클라이언트별 전용 소켓을 얻고, 첫 줄(Request Line)을 공백 기준으로 분리하여 Method/Path/HTTP-Version을 추출한다.
+`accept()`로 클라이언트별 전용 소켓을 얻은 뒤, 요청 하나를 처리하고 곧바로 닫는 대신 내부 `while True:` 루프를 돈다. 매 반복마다 `recv()`로 새 요청을 기다리며, 클라이언트가 소켓을 닫으면(사용자가 `q`를 입력해 `close()`가 호출되면) `recv()`가 빈 문자열을 반환하므로 이를 루프 종료 조건으로 삼는다. 첫 줄(Request Line)은 공백 기준으로 분리하여 Method/Path/HTTP-Version을 추출한다.
 
 이어서 헤더 영역(`\r\n\r\n` 이전)만 잘라내어 한 줄씩 검사하며 `Content-Length`와 `Expect: 100-continue` 유무를 확인한다.
 
@@ -263,79 +279,127 @@ for line in header_part.split("\r\n")[1:]:
 
 각 분기는 `sqlite3.connect("database/users.db")`로 DB에 접속하여 조회(`SELECT`)/삽입(`INSERT`)/수정(`UPDATE`)/삭제(`DELETE`) SQL을 실행하고, 결과에 따라 `json.dumps()`로 JSON 바디를 만들어 HTTP 응답 문자열에 붙인다.
 
-### 6.4 응답 전송 및 종료
+### 6.4 응답 조립·전송과 연결 유지
 
 ```python
-connectionSocket.send(response.encode())
-connectionSocket.close()
+head, _, resp_body = response.partition("\r\n\r\n")
+body_bytes = resp_body.encode()
+response_bytes = (
+    head.encode()
+    + f"\r\nContent-Length: {len(body_bytes)}\r\nConnection: keep-alive\r\n\r\n".encode()
+    + body_bytes
+)
+
+connectionSocket.send(response_bytes) # 응답 전송, 연결은 닫지 않고 다음 요청을 기다림
 ```
 
-응답을 전송한 뒤 연결 소켓을 닫고, 서버는 `while True` 최상단으로 돌아가 다음 `accept()`를 대기한다.
+각 분기에서 만든 `response` 문자열(상태 라인 + 기존 헤더 + 빈 줄 + 바디)을 `\r\n\r\n` 기준으로 헤더부/바디부로 나눈 뒤, 실제 바디 바이트 길이로 계산한 `Content-Length`와 `Connection: keep-alive`를 끝에 추가해서 다시 조립한다. 응답을 보낸 뒤에는 연결을 닫지 않고 내부 `while True` 루프 맨 위로 돌아가 같은 소켓으로 다음 요청을 기다린다. 클라이언트가 연결을 끊었을 때(6.2절의 `if not request: break`)만 루프를 빠져나와 바깥쪽 `while True`로 돌아가 `connectionSocket.close()`를 호출하고 다음 클라이언트의 `accept()`를 대기한다.
 
 ---
 
 ## 7. 클라이언트(client.py) 동작 과정
 
-### 7.1 요청 생성 — `send_request()`
+### 7.1 TCP 연결은 프로그램 시작 시 단 한 번
 
 ```python
-def send_request(method, path, body=""):
-    clientSocket = socket(AF_INET, SOCK_STREAM)
-    clientSocket.connect((serverName, serverPort))
+clientSocket = socket(AF_INET, SOCK_STREAM) # TCP 연결은 여기서 딱 한 번만 생성
+clientSocket.connect((serverName, serverPort))
+print("TCP Connect")
+```
 
+기존에는 `send_request()`가 호출될 때마다 새 TCP 연결을 맺었지만(HTTP/1.0 스타일), 이제는 프로그램 최상단에서 `connect()`를 한 번만 호출하고 이 소켓(`clientSocket`)을 이후 루프 전체에서 재사용한다.
+
+### 7.2 요청 생성과 100 Continue 처리 — `send_request()`
+
+```python
+def send_request(clientSocket, method, path, body=""):
     header_lines = f"Host: {serverName}"
     if body:
         header_lines += f"\r\nContent-Type: application/json\r\nContent-Length: {len(body.encode())}"
         header_lines += "\r\nExpect: 100-continue"
+    header_lines += "\r\nConnection: keep-alive" # 이 연결을 계속 쓸 것임을 알림
 
     request = f"{method} {path} HTTP/1.1\r\n{header_lines}\r\n\r\n"
-    clientSocket.send(request.encode())
+    clientSocket.send(request.encode()) # 같은 소켓으로 요청 전송 (새 연결 생성 없음)
+
+    if body:
+        interim = clientSocket.recv(1024).decode()
+        if interim.startswith("HTTP/1.1 100"):
+            clientSocket.send(body.encode()) # 100 Continue를 받은 후에 바디 전송
 ```
 
-호출될 때마다 새 TCP 연결을 맺고, `Method`, `Path`, `Host` 헤더를 조합해 Request Line + Header를 만든다. 바디가 있는 경우(POST/PUT)에는 `Content-Type`, `Content-Length`, `Expect: 100-continue` 헤더를 추가한다.
+이미 연결된 `clientSocket`을 인자로 받아 그 소켓으로 요청을 보낸다. `Method`, `Path`, `Host` 헤더를 조합해 Request Line + Header를 만들고, 바디가 있는 경우(POST/PUT)에는 `Content-Type`, `Content-Length`, `Expect: 100-continue` 헤더를 추가한 뒤 `Connection: keep-alive`를 덧붙인다. 서버로부터 `100 Continue`를 받은 뒤에야 실제 JSON 바디를 전송하는 흐름은 이전과 동일하다.
 
-### 7.2 100 Continue 처리 후 바디 전송
+### 7.3 응답 수신 — `recv_response()`
 
 ```python
-if body:
-    interim = clientSocket.recv(1024).decode()
-    print(f"[{method} {path}] interim ->", interim.split("\r\n")[0])
-    if interim.startswith("HTTP/1.1 100"):
-        clientSocket.send(body.encode())
+def recv_response(clientSocket):
+    buffer = b""
+    while b"\r\n\r\n" not in buffer: # 헤더가 다 도착할 때까지 수신
+        chunk = clientSocket.recv(4096)
+        if not chunk:
+            break
+        buffer += chunk
+
+    header_bytes, _, body_bytes = buffer.partition(b"\r\n\r\n")
+    header_text = header_bytes.decode()
+
+    content_length = 0
+    for line in header_text.split("\r\n")[1:]:
+        if line.lower().startswith("content-length:"):
+            content_length = int(line.split(":")[1].strip())
+
+    while len(body_bytes) < content_length: # Content-Length만큼 바디가 다 도착할 때까지 수신
+        chunk = clientSocket.recv(4096)
+        if not chunk:
+            break
+        body_bytes += chunk
+
+    return header_text + "\r\n\r\n" + body_bytes.decode()
 ```
 
-서버로부터 `100 Continue`를 받은 뒤에야 실제 JSON 바디를 전송한다.
-
-### 7.3 최종 응답 수신 및 출력
+기존에는 `clientSocket.recv(4096)` 한 번으로 응답을 통째로 읽었는데, 이는 서버가 응답 직후 곧바로 연결을 닫아주었기 때문에 우연히 문제없이 동작했던 것이다. Keep-Alive로 연결이 계속 열려 있으면 "연결이 닫히면 응답 끝"이라는 신호를 쓸 수 없으므로, 응답 헤더의 `Content-Length`를 읽어 그 바이트 수만큼 바디가 다 올 때까지 `recv()`를 반복하도록 고쳤다. `send_request()`는 이 함수로 받은 응답에서 상태 코드만 뽑아 출력한다.
 
 ```python
-response = clientSocket.recv(4096).decode()
-status_line = response.split("\r\n")[0]
-print(f"[{method} {path}] -> {status_line}")
-print(response)
+response = recv_response(clientSocket)
+status_line = response.split("\r\n")[0] # "HTTP/1.1 200 OK"
+status_only = status_line.split(" ", 1)[1] # "200 OK"
+
+print(f"{method} {path}")
+print(status_only)
 ```
 
-서버의 최종 응답(Status Line + Header + Body)을 수신하여 콘솔에 그대로 출력한다.
-
-### 7.4 테스트 케이스 실행기
+### 7.4 대화형 실행 루프
 
 ```python
 test_cases = {
-    "1": ("GET-200", ...),
-    "2": ("GET-404", ...),
-    "3": ("HEAD-200", ...),
-    "4": ("POST-201", ...),
-    "5": ("POST-400", ...),
-    "6": ("PUT-200", ...),
-    "7": ("PUT-404", ...),
-    "8": ("DELETE-204", ...),
-    "9": ("DELETE-404", ...),
+    "1": ("GET", "/users", ""),
+    "2": ("GET", "/notfound", ""),
+    "3": ("HEAD", "/users", ""),
+    "4": ("POST", "/users", '{"name": "Kim", "email": "kim@test.com"}'),
+    ...
 }
+
+while True:
+    choice = input("번호 입력: ").strip()
+
+    if choice.lower() == "q": # 종료할 때만 연결을 닫음
+        break
+
+    if choice not in test_cases:
+        print("잘못된 입력입니다.")
+        continue
+
+    method, path, body = test_cases[choice]
+    send_request(clientSocket, method, path, body) # 같은 소켓으로 요청 전송
+
+clientSocket.close()
+print("TCP Close")
 ```
 
-번호를 입력받아 해당 케이스만 실행하거나, `0`을 입력하면 9개 케이스를 순서대로 모두 실행한다. 과제에서 요구한 "Method-상태코드 5개 이상" 조건을 충족하기 위해 GET/HEAD/POST/PUT/DELETE 5개 메서드 각각에 대해 성공/실패 케이스를 나누어 총 9개 조합을 준비하였다.
+사용자가 번호(1~9)를 입력할 때마다 이미 연결된 `clientSocket`으로 요청을 보내고, `q`를 입력하면 그때 루프를 빠져나와 소켓을 닫는다. 즉 **TCP 연결 생성은 프로그램 시작 시 1번, 종료는 `q` 입력 시 1번뿐**이고, 그 사이의 모든 요청/응답은 같은 소켓 위에서 오간다. 과제에서 요구한 "Method-상태코드 5개 이상" 조건을 충족하기 위해 GET/HEAD/POST/PUT/DELETE 5개 메서드 각각에 대해 성공/실패 케이스를 나누어 총 9개 조합을 준비하였다.
 
-> **주의**: `DELETE-204` 케이스는 `/users/1`을 고정적으로 삭제하도록 구현되어 있으므로, 이미 한 번 삭제된 이후 재실행하면 `404 Not Found`가 반환된다. 204 응답을 재현하려면 시연 전에 `database/users.db`를 삭제하고 `seed_users.py`를 다시 실행하여 DB를 초기 상태로 되돌려야 한다.
+> **주의**: `DELETE-204`에 해당하는 `8`번 케이스는 `/users/20`을 고정적으로 삭제하도록 구현되어 있으므로, 이미 한 번 삭제된 이후 재실행하면 `404 Not Found`가 반환된다. 204 응답을 재현하려면 시연 전에 `seed_users.py`를 다시 실행하여 DB를 초기 상태로 되돌려야 한다.
 
 ---
 
@@ -372,24 +436,29 @@ The server is ready to receive
 python client.py
 ```
 
-실행하면 아래와 같은 메뉴가 출력된다.
+실행하면 아래와 같이 출력되고, TCP 연결을 맺은 뒤 번호 입력을 기다린다.
 
 ```
-테스트할 케이스를 선택하세요:
-  1. GET-200
-  2. GET-404
-  3. HEAD-200
-  4. POST-201
-  5. POST-400
-  6. PUT-200
-  7. PUT-404
-  8. DELETE-204
-  9. DELETE-404
-  0. 전체 실행
+프로그램 시작
+
+사용 가능한 번호:
+  1. GET /users
+  2. GET /notfound
+  3. HEAD /users
+  4. POST /users
+  5. POST /users
+  6. PUT /users/1
+  7. PUT /users/9999
+  8. DELETE /users/20
+  9. DELETE /users/9999
+  q. 종료
+
+TCP Connect
+
 번호 입력:
 ```
 
-번호(1~9) 또는 `0`(전체 실행)을 입력하면 해당 HTTP 요청이 서버로 전송되고, 응답이 클라이언트 콘솔에 출력된다.
+번호(1~9)를 입력할 때마다 이미 맺어둔 같은 TCP 연결로 해당 HTTP 요청이 전송되고, 응답 상태 코드가 출력된 뒤 다시 `번호 입력:` 프롬프트로 돌아온다. `q`를 입력해야 비로소 연결이 닫히고 프로그램이 종료된다(9장 참고).
 
 ### 8.4 2대 PC 환경으로 실행할 경우
 
@@ -401,121 +470,81 @@ python client.py
 
 ## 9. HTTP 요청/응답 실행 결과 (Method-상태코드 케이스)
 
-아래는 `seed_users.py`로 DB를 초기화한 직후, `python server.py` → `python client.py`(전체 실행, `0` 입력)로 얻은 **실제 실행 로그**이다. 총 9개의 Method-상태코드 조합을 확인할 수 있으며, 과제에서 요구한 "5개 이상" 조건을 초과 달성하였다.
-
-### 9.1 GET-200 (전체 사용자 조회)
+아래는 `seed_users.py`로 DB를 초기화한 직후, `python server.py` → `python client.py`를 실행하여 번호 `1`부터 `9`까지 순서대로 입력하고 마지막에 `q`로 종료한 **실제 실행 로그**이다. TCP 연결은 `TCP Connect` 시점에 한 번만 맺어졌고, 9개 요청 모두 그 연결 하나로 오간 뒤 `q` 입력 시점에 `TCP Close`로 닫혔다.
 
 ```
-[GET /users] -> HTTP/1.1 200 OK
-HTTP/1.1 200 OK
-Content-Type: application/json
+프로그램 시작
 
-[{"id": 1, "name": "Jaewon", "email": "jaewon@example.com"}, {"id": 2, "name": "Minji", ...}, ..., {"id": 20, "name": "Rina", "email": "rina@example.com"}]
+사용 가능한 번호:
+  1. GET /users
+  2. GET /notfound
+  3. HEAD /users
+  4. POST /users
+  5. POST /users
+  6. PUT /users/1
+  7. PUT /users/9999
+  8. DELETE /users/20
+  9. DELETE /users/9999
+  q. 종료
+
+TCP Connect
+
+번호 입력: 1
+GET /users
+200 OK
+
+번호 입력: 2
+GET /notfound
+404 Not Found
+
+번호 입력: 3
+HEAD /users
+200 OK
+
+번호 입력: 4
+POST /users
+201 Created
+
+번호 입력: 5
+POST /users
+400 Bad Request
+
+번호 입력: 6
+PUT /users/1
+200 OK
+
+번호 입력: 7
+PUT /users/9999
+404 Not Found
+
+번호 입력: 8
+DELETE /users/20
+204 No Content
+
+번호 입력: 9
+DELETE /users/9999
+404 Not Found
+
+번호 입력: q
+TCP Close
+프로그램 종료
 ```
-**설명**: `GET /users` 요청 시 DB에 저장된 20명의 사용자 정보를 JSON 배열로 반환한다. 리소스가 정상적으로 존재하므로 `200 OK`.
 
-### 9.2 GET-404 (존재하지 않는 경로)
+클라이언트 콘솔에는 요청(`Method Path`)과 최종 상태 코드만 출력되도록 되어 있다(7.3절). 각 케이스의 상세 동작은 다음과 같다.
 
-```
-[GET /notfound] -> HTTP/1.1 404 Not Found
-HTTP/1.1 404 Not Found
-Content-Type: application/json
-
-{"error": "not found"}
-```
-**설명**: 서버에 정의되지 않은 경로(`/notfound`)로 요청하면 `404 Not Found`와 함께 에러 메시지를 JSON으로 반환한다.
-
-### 9.3 HEAD-200 (헤더만 응답)
-
-```
-[HEAD /users] -> HTTP/1.1 200 OK
-HTTP/1.1 200 OK
-Content-Type: application/json
-
-```
-**설명**: HEAD는 GET과 동일한 로직으로 리소스 존재 여부를 확인하지만, 응답 바디 없이 상태 라인과 헤더만 반환한다. 실제 로그에서도 `Content-Type` 헤더 이후 바디 없이 응답이 종료됨을 확인할 수 있다.
-
-### 9.4 POST-201 (사용자 생성 성공) — 1xx + 2xx 동시 확인
-
-```
-[POST /users] interim -> HTTP/1.1 100 Continue
-[POST /users] -> HTTP/1.1 201 Created
-HTTP/1.1 201 Created
-Content-Type: application/json
-
-{"id": 21, "name": "Kim", "email": "kim@test.com"}
-```
-**설명**: `Content-Length`, `Expect: 100-continue` 헤더가 포함된 요청을 보내면 서버가 먼저 `100 Continue`를 응답(1xx)하고, 클라이언트가 실제 바디(JSON)를 전송하면 서버가 새 사용자를 DB에 삽입한 뒤 `201 Created`와 함께 생성된 사용자 정보(자동 증가된 `id: 21`)를 반환한다. 하나의 케이스에서 1xx와 2xx 응답을 모두 관찰할 수 있다.
-
-### 9.5 POST-400 (필수 필드 누락)
-
-```
-[POST /users] interim -> HTTP/1.1 100 Continue
-[POST /users] -> HTTP/1.1 400 Bad Request
-HTTP/1.1 400 Bad Request
-Content-Type: application/json
-
-{"error": "name and email are required"}
-```
-**설명**: 바디로 빈 JSON(`{}`)을 전송하면 서버가 `name`, `email` 필드 누락을 감지하고 `400 Bad Request`를 반환한다. 클라이언트 요청 자체의 오류이므로 4xx 계열이다.
-
-### 9.6 PUT-200 (사용자 정보 수정 성공)
-
-```
-[PUT /users/1] interim -> HTTP/1.1 100 Continue
-[PUT /users/1] -> HTTP/1.1 200 OK
-HTTP/1.1 200 OK
-Content-Type: application/json
-
-{"id": 1, "name": "Kim Updated", "email": "jaewon@example.com"}
-```
-**설명**: `id=1`(Jaewon)의 `name`만 `"Kim Updated"`로 갱신하는 요청. 대상이 존재하므로 DB `UPDATE` 후 갱신된 전체 사용자 정보를 `200 OK`로 반환한다. 요청 바디에 없는 `email` 필드는 기존 값을 그대로 유지한다.
-
-### 9.7 PUT-404 (존재하지 않는 사용자 수정 시도)
-
-```
-[PUT /users/9999] interim -> HTTP/1.1 100 Continue
-[PUT /users/9999] -> HTTP/1.1 404 Not Found
-HTTP/1.1 404 Not Found
-Content-Type: application/json
-
-{"error": "user not found"}
-```
-**설명**: 존재하지 않는 `id=9999`를 수정하려 하면 DB 조회 결과가 없으므로 `404 Not Found`.
-
-### 9.8 DELETE-204 (사용자 삭제 성공)
-
-```
-[DELETE /users/1] -> HTTP/1.1 204 No Content
-HTTP/1.1 204 No Content
-
-```
-**설명**: `id=1` 사용자를 삭제한다. 삭제가 성공하면 반환할 바디가 없으므로 `204 No Content`를 사용하며, 실제로 바디 없이 상태 라인만 응답됨을 확인할 수 있다.
-
-### 9.9 DELETE-404 (존재하지 않는 사용자 삭제 시도)
-
-```
-[DELETE /users/9999] -> HTTP/1.1 404 Not Found
-HTTP/1.1 404 Not Found
-Content-Type: application/json
-
-{"error": "user not found"}
-```
-**설명**: 이미 없는(혹은 애초에 없던) `id=9999`를 삭제하려 하면 `404 Not Found`.
-
-### 9.10 결과 요약표
-
-| # | 요청 | 응답 상태 코드 | 분류 |
+| # | 요청 | 응답 | 설명 |
 |---|---|---|---|
-| 1 | GET /users | 200 OK | 2xx |
-| 2 | GET /notfound | 404 Not Found | 4xx |
-| 3 | HEAD /users | 200 OK | 2xx |
-| 4 | POST /users (정상 바디) | 100 Continue → 201 Created | 1xx, 2xx |
-| 5 | POST /users (필드 누락) | 100 Continue → 400 Bad Request | 1xx, 4xx |
-| 6 | PUT /users/1 (정상 바디) | 100 Continue → 200 OK | 1xx, 2xx |
-| 7 | PUT /users/9999 | 100 Continue → 404 Not Found | 1xx, 4xx |
-| 8 | DELETE /users/1 | 204 No Content | 2xx |
-| 9 | DELETE /users/9999 | 404 Not Found | 4xx |
+| 1 | `GET /users` | `200 OK` | DB에 저장된 20명의 사용자 정보를 JSON 배열로 반환 |
+| 2 | `GET /notfound` | `404 Not Found` | 정의되지 않은 경로 → `{"error": "not found"}` |
+| 3 | `HEAD /users` | `200 OK` | GET과 같은 로직으로 존재 여부만 판단, 바디 없이 헤더만 응답 |
+| 4 | `POST /users` (정상 바디) | `100 Continue` → `201 Created` | `Expect: 100-continue`로 100 응답을 먼저 받은 뒤 바디 전송 → DB에 삽입되어 자동 증가된 `id: 21`로 생성됨 |
+| 5 | `POST /users` (빈 바디 `{}`) | `100 Continue` → `400 Bad Request` | `name`/`email` 필드 누락 감지 → `{"error": "name and email are required"}` |
+| 6 | `PUT /users/1` | `100 Continue` → `200 OK` | 대상이 존재하므로 `name`/`email`을 요청 바디 값으로 전체 교체 후 갱신된 정보 반환 |
+| 7 | `PUT /users/9999` | `100 Continue` → `404 Not Found` | 존재하지 않는 `id` → `{"error": "user not found"}` |
+| 8 | `DELETE /users/20` | `204 No Content` | 삭제 성공, 반환할 바디가 없으므로 `204` (바디 없이 상태 라인만) |
+| 9 | `DELETE /users/9999` | `404 Not Found` | 이미 없는 `id` → `{"error": "user not found"}` |
+
+4, 5, 6, 7번 케이스는 요청에 바디가 있어 `Expect: 100-continue` → `100 Continue` 흐름이 먼저 발생하지만(4.5절), 콘솔에는 최종 상태 코드만 찍히므로 `100 Continue` 자체는 로그에 보이지 않는다. 이 1xx 응답이 실제로 오갔는지는 10장의 Wireshark 캡처에서 확인한다.
 
 과제 예시에서 제시한 "GET-4xx, GET-2xx, HEAD-1xx, POST-2xx, POST-1xx" 5가지 조합을 모두 포함하며(HEAD 자체는 1xx를 발생시키지 않으므로, 1xx는 바디를 포함하는 POST/PUT 요청에서 재현), 총 9개의 서로 다른 Method-상태코드 조합으로 요구 조건(5개 이상)을 초과 달성하였다.
 
@@ -538,19 +567,21 @@ Content-Type: application/json
 
 1. Wireshark 실행 → 캡처 인터페이스로 **Loopback(localhost 통신용, `Npcap Loopback Adapter` 또는 `Adapter for loopback traffic capture`)** 선택
 2. 캡처 필터 또는 디스플레이 필터에 `tcp.port == 8080` 입력하여 8080 포트 트래픽만 확인
-3. `python server.py` 실행 → `python client.py` 실행 순서로 캡처 시작 후, 위 5개 케이스를 번호(1, 2, 3, 4, 7)로 하나씩 실행 (client.py 메뉴의 4번=POST-201, 7번=PUT-404)
-4. 요청마다 새 TCP 연결이 열리므로, 캡처 화면에서 `tcp.stream eq 0`, `eq 1`, `eq 2` … 순서로 필터를 바꿔가며 실행 순서와 매칭해서 확인
+3. `python server.py` 실행 → `python client.py` 실행 순서로 캡처 시작 후, 번호를 `1, 2, 3, 4, 7`(위 5개 케이스) 순서로 입력하고 `q`로 종료
+4. Keep-Alive로 TCP 연결이 하나만 열리므로, 위 5개 요청·응답이 모두 **같은 `tcp.stream` 번호** 안에 순서대로 들어있다. `Follow → TCP Stream`으로 열어 스크롤하며 요청 순서대로 확인
 5. HTTP로 필터링하려면 `http` 디스플레이 필터도 함께 사용 가능 (단, Wireshark가 8080 포트를 HTTP로 자동 인식하지 못하면 패킷에서 우클릭 → `Decode As` → HTTP로 지정)
 
 ### 10.2 확인 항목
 
-- **3-way Handshake**: `SYN` → `SYN, ACK` → `ACK` 3개 패킷이 각 요청 연결마다 반복
-- **HTTP Request 패킷**: `GET /users HTTP/1.1`, `POST /users HTTP/1.1` 등 Request Line과 `Content-Length`, `Expect: 100-continue`
+- **3-way Handshake**: `SYN` → `SYN, ACK` → `ACK` 3개 패킷이 `TCP Connect` 시점에 **한 번만** 발생
+- **HTTP Request 패킷**: `GET /users HTTP/1.1`, `POST /users HTTP/1.1` 등 Request Line과 `Content-Length`, `Expect: 100-continue`, `Connection: keep-alive`
 - **100 Continue 패킷**: POST/PUT 요청 시 서버가 바디를 받기 전에 별도의 작은 응답 패킷(`HTTP/1.1 100 Continue`)을 먼저 보냄
-- **HTTP Response 패킷**: 상태 코드별 응답(`200 OK`, `404 Not Found`, `201 Created` 등)이 페이로드에 텍스트로 담김
-- **4-way termination (FIN/ACK)**: 각 요청 처리가 끝난 뒤 클라이언트/서버 양쪽에서 소켓을 `close()`하므로 `FIN, ACK` 교환이 요청마다 발생
+- **HTTP Response 패킷**: 상태 코드별 응답(`200 OK`, `404 Not Found`, `201 Created` 등)이 페이로드에 텍스트로 담기며, `Content-Length`/`Connection: keep-alive` 헤더도 함께 확인 가능
+- **연결이 유지됨(FIN 없음)**: 5개 요청·응답 사이사이에는 `FIN`이 나타나지 않고, 같은 연결 위에서 바로 다음 요청이 이어진다. `q` 입력으로 클라이언트가 `close()`를 호출하는 시점에만 `FIN, ACK` 4-way termination이 한 번 발생한다 — 이 부분이 이전(요청마다 연결을 닫던) 버전과 가장 크게 달라진 지점이다.
 
 ### 10.3 케이스별 캡처 화면
+
+> **참고**: 아래 6개 스크린샷은 Keep-Alive를 도입하기 전, 요청마다 새 TCP 연결을 맺고 응답 직후 바로 닫던 버전으로 캡처한 것이다. 그래서 각 캡처마다 3-way handshake와 `FIN, ACK` 종료가 개별적으로 등장한다. 지금 코드로 다시 캡처하면 10.1~10.2에서 설명한 대로 5개 요청이 handshake 한 번, 종료 한 번을 공유하는 **하나의 `tcp.stream`** 안에 이어져 보인다 — Request Line, 100 Continue, 상태 코드 등 개별 패킷의 내용 자체는 동일하게 확인할 수 있다.
 
 **① GET /users → 200 OK**
 
@@ -593,14 +624,16 @@ Content-Type: application/json
 
 또한 GET/HEAD/POST/PUT/DELETE 5개 메서드에 대해 성공/실패 케이스를 나누어 총 9개의 Method-상태코드 조합(1xx, 2xx, 4xx 포함)을 재현함으로써, 상태 코드가 단순한 숫자가 아니라 클라이언트-서버 간 약속된 의미 체계임을 확인할 수 있었다. Wireshark로 실제 패킷을 캡처하면 이 텍스트 기반 프로토콜이 TCP 세그먼트에 그대로 실려 전송된다는 것, 그리고 3-way handshake와 100 Continue 같은 세부 흐름이 실제로 존재한다는 것을 눈으로 확인할 수 있었다.
 
+개발 과정에서 처음에는 요청마다 새 TCP 연결을 맺고 응답 직후 곧바로 닫는 구조로 구현했는데, 이는 요청을 여러 번 보낼 방법(Keep-Alive)이 없다는 점에서 HTTP/1.1의 이름값에 맞지 않았다. 이를 하나의 TCP 연결로 여러 요청을 처리하는 지속 연결(Persistent Connection) 구조로 바꾸면서, "연결을 닫는 것"이 아니라 "`Content-Length`로 응답의 끝을 알리는 것"이 메시지 프레이밍의 본질이라는 점을 체감했다. 연결을 유지한 채로는 소켓이 닫히는 순간을 응답의 끝으로 쓸 수 없으므로, 클라이언트가 다음 요청을 준비하려면 서버가 반드시 바디 길이를 명시해야 했다.
+
 ---
 
 ## 부록 A. 전체 소스코드
 
 전체 소스코드는 다음 파일에 포함되어 있으며, 본 문서에는 핵심 로직만 발췌하여 설명하였다.
 
-- `server.py` — TCP 서버 및 HTTP 요청 처리 로직 (약 150줄)
-- `client.py` — TCP 클라이언트 및 테스트 케이스 실행기 (약 75줄)
+- `server.py` — TCP 서버 및 HTTP 요청 처리 로직, Keep-Alive 루프 포함 (약 180줄)
+- `client.py` — TCP 클라이언트 및 대화형 실행 루프 (약 100줄)
 - `seed_users.py` — DB 초기화 스크립트 (약 30줄)
 
 (각 파일의 상세 주석은 소스코드 내 인라인 주석을 참고)
