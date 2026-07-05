@@ -542,13 +542,13 @@ Content-Type: application/json
 4. 요청마다 새 TCP 연결이 열리므로, 캡처 화면에서 `tcp.stream eq 0`, `eq 1`, `eq 2` … 순서로 필터를 바꿔가며 실행 순서와 매칭해서 확인하면 편리함
 5. HTTP로 필터링하려면 `http` 디스플레이 필터도 함께 사용 가능 (단, Wireshark가 8080 포트를 HTTP로 자동 인식하지 못하면 패킷에서 우클릭 → `Decode As` → HTTP로 지정)
 
-### 10.2 확인해야 할 항목
+### 10.2 확인 항목
 
-- **3-way Handshake**: `SYN` → `SYN, ACK` → `ACK` 3개 패킷이 각 요청 연결마다 반복되는지 확인 (본 프로젝트는 요청마다 새 연결을 맺으므로 요청 횟수만큼 handshake가 반복됨)
-- **HTTP Request 패킷**: `GET /users HTTP/1.1`, `POST /users HTTP/1.1` 등 Request Line과 `Content-Length`, `Expect: 100-continue` 헤더가 페이로드에 그대로 담겨 있는지 확인
-- **100 Continue 패킷**: POST/PUT 요청 시 서버가 바디를 받기 전에 별도의 작은 응답 패킷(`HTTP/1.1 100 Continue`)을 먼저 보내는 것을 확인 — 요청 헤더 패킷과 바디 패킷 사이에 별도로 존재
-- **HTTP Response 패킷**: 상태 코드별 응답(`200 OK`, `404 Not Found`, `201 Created` 등)이 페이로드에 텍스트로 그대로 노출되는지 확인 (HTTP는 평문이므로 Wireshark의 `Follow > TCP Stream` 기능으로 요청/응답 전체를 하나의 대화로 볼 수 있음)
-- **4-way termination (FIN/ACK)**: 각 요청 처리가 끝난 뒤 클라이언트/서버 양쪽에서 소켓을 `close()`하므로 `FIN, ACK` 교환이 요청마다 발생하는지 확인
+- **3-way Handshake**: `SYN` → `SYN, ACK` → `ACK` 3개 패킷이 각 요청 연결마다 반복
+- **HTTP Request 패킷**: `GET /users HTTP/1.1`, `POST /users HTTP/1.1` 등 Request Line과 `Content-Length`, `Expect: 100-continue`
+- **100 Continue 패킷**: POST/PUT 요청 시 서버가 바디를 받기 전에 별도의 작은 응답 패킷(`HTTP/1.1 100 Continue`)을 먼저 보냄
+- **HTTP Response 패킷**: 상태 코드별 응답(`200 OK`, `404 Not Found`, `201 Created` 등)이 페이로드에 텍스트로 담김
+- **4-way termination (FIN/ACK)**: 각 요청 처리가 끝난 뒤 클라이언트/서버 양쪽에서 소켓을 `close()`하므로 `FIN, ACK` 교환이 요청마다 발생
 
 ### 10.3 케이스별 캡처 화면
 
