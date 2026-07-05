@@ -536,10 +536,10 @@ Content-Type: application/json
 
 ### 10.1 캡처 방법
 
-1. Wireshark 실행 → 캡처 인터페이스로 **Loopback(localhost 통신용, `Npcap Loopback Adapter` 또는 `Adapter for loopback traffic capture`)** 선택 (localhost로 실습하는 경우)
+1. Wireshark 실행 → 캡처 인터페이스로 **Loopback(localhost 통신용, `Npcap Loopback Adapter` 또는 `Adapter for loopback traffic capture`)** 선택
 2. 캡처 필터 또는 디스플레이 필터에 `tcp.port == 8080` 입력하여 8080 포트 트래픽만 확인
 3. `python server.py` 실행 → `python client.py` 실행 순서로 캡처 시작 후, 위 5개 케이스를 번호(1, 2, 3, 4, 7)로 하나씩 실행 (client.py 메뉴의 4번=POST-201, 7번=PUT-404)
-4. 요청마다 새 TCP 연결이 열리므로, 캡처 화면에서 `tcp.stream eq 0`, `eq 1`, `eq 2` … 순서로 필터를 바꿔가며 실행 순서와 매칭해서 확인하면 편리함
+4. 요청마다 새 TCP 연결이 열리므로, 캡처 화면에서 `tcp.stream eq 0`, `eq 1`, `eq 2` … 순서로 필터를 바꿔가며 실행 순서와 매칭해서 확인
 5. HTTP로 필터링하려면 `http` 디스플레이 필터도 함께 사용 가능 (단, Wireshark가 8080 포트를 HTTP로 자동 인식하지 못하면 패킷에서 우클릭 → `Decode As` → HTTP로 지정)
 
 ### 10.2 확인 항목
